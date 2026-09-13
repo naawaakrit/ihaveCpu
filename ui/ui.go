@@ -22,6 +22,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 )
 
 // โหลด icon
@@ -67,9 +68,13 @@ echo '(-@_@-)' && dmidecode -t 22
 `)
 	//dmidecode -t memory
 
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", "", "", "", "", "", "", "", "", err
+		details := strings.TrimSpace(string(out))
+		if details != "" {
+			return "", "", "", "", "", "", "", "", "", fmt.Errorf("ไม่สามารถอ่านข้อมูลฮาร์ดแวร์: %w\nรายละเอียด: %s", err, details)
+		}
+		return "", "", "", "", "", "", "", "", "", fmt.Errorf("ไม่สามารถอ่านข้อมูลฮาร์ดแวร์: %w", err)
 	}
 
 	parts := strings.Split(string(out), "(-@_@-)")
@@ -117,6 +122,10 @@ func CreateWindow() {
 		err := GetDataIn()
 
 	if err != nil {
+		w.Resize(fyne.NewSize(720, 800))
+		w.Show()
+		dialog.ShowError(err, w)
+		w.ShowAndRun()
 		return
 	}
 
