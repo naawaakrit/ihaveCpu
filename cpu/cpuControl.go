@@ -98,7 +98,7 @@ func getCPUFreqUpdate(cpuIndex int) (fyne.CanvasObject, uint64, uint64) {
 	update := func() {
 		var x1 strings.Builder
 		//x1.WriteString("ยังไม่รองรับหลาย cpu")
-		x1.WriteString(fmt.Sprintf("core [ %d ]", cpuIndex))
+		x1.WriteString(fmt.Sprintf("thread [ %d ]", cpuIndex))
 
 		for _, item := range files {
 			data, err := os.ReadFile(base + item.file)
@@ -151,16 +151,16 @@ func getCPUFreqUpdate(cpuIndex int) (fyne.CanvasObject, uint64, uint64) {
 // เพิ่ม label ตามจำนวนคอร์
 // ============================================================================
 func sysCPUFreqUpdate() fyne.CanvasObject {
-	coreCount := CpuCoreCount()
+	threadCount := CpuThreadCount()
 	//box := container.NewVBox()
 	box := container.NewGridWithColumns(2)
 
-	for i := 0; i < coreCount; i++ {
+	for i := 0; i < threadCount; i++ {
 		coreInfo, _, _ := getCPUFreqUpdate(i)
 		box.Add(coreInfo)
 	}
-	if coreCount == 0 {
-		return widget.NewLabel("ไม่พบข้อมูลจำนวนคอร์ CPU")
+	if threadCount == 0 {
+		return widget.NewLabel("ไม่พบข้อมูลจำนวนเทรด CPU")
 	}
 	return box
 }
@@ -193,14 +193,14 @@ func nonCheckBoxCpu(checkboxes []*widget.Check, selected []bool, updateLabel fun
 // เพิ่ม checkbox ตามจำนวนคอร์
 // ============================================================================
 func checkboxNumcpu() (fyne.CanvasObject, []bool, []*widget.Check, func()) {
-	coreCount := CpuCoreCount()
-	if coreCount == 0 {
-		return widget.NewLabel("ไม่พบข้อมูลจำนวนคอร์ CPU"), nil, nil, nil
+	threadCount := CpuThreadCount()
+	if threadCount == 0 {
+		return widget.NewLabel("ไม่พบข้อมูลจำนวนเทรด CPU"), nil, nil, nil
 	}
 
-	selected := make([]bool, coreCount)
-	checkboxes := make([]*widget.Check, coreCount)
-	for i := 0; i < coreCount; i++ {
+	selected := make([]bool, threadCount)
+	checkboxes := make([]*widget.Check, threadCount)
+	for i := 0; i < threadCount; i++ {
 		selected[i] = true
 	}
 
@@ -210,10 +210,10 @@ func checkboxNumcpu() (fyne.CanvasObject, []bool, []*widget.Check, func()) {
 
 	box := container.NewGridWithColumns(10) //8
 
-	for i := 0; i < coreCount; i++ {
+	for i := 0; i < threadCount; i++ {
 		idx := i
-		coreName := strconv.Itoa(idx)
-		x := widget.NewCheck("[ "+coreName+" ]", func(checked bool) {
+		threadName := strconv.Itoa(idx)
+		x := widget.NewCheck("thread [ "+threadName+" ]", func(checked bool) {
 			selected[idx] = checked
 			if checked {
 				//fmt.Println("core", idx, "เปิด")
