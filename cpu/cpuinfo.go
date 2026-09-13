@@ -1,0 +1,596 @@
+// Copyright (c) 2026 Nawakarit
+// Copyright (c) 2026 Naawaakrit
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License v3.0.
+package cpu
+
+import (
+	"fmt"
+	"image/color"
+	"log"
+	"time"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/widget"
+	"github.com/klauspost/cpuid/v2"
+	"github.com/shirou/gopsutil/v3/cpu"
+)
+
+// จำนวนคอร์
+func CpuCoreCount() int {
+	physicalCore, err := cpu.Counts(false) //core
+	if err != nil {
+		log.Println(err)
+		return (0)
+	}
+	return physicalCore //core จริง
+}
+
+// จำนวนเทรด
+func CpuThreadCount() int {
+	logical, err := cpu.Counts(true) //thread
+	if err != nil {
+		log.Println(err)
+		return (0)
+	}
+	return logical
+}
+
+func CpuPercentAVG() []float64 { //*[]float64
+	// ดึง CPU usage รวม
+	percentAVG, err := cpu.Percent(100*time.Millisecond, false)
+	if err != nil || len(percentAVG) == 0 {
+		log.Println(err)
+		return []float64{0.0}
+	}
+	return percentAVG
+}
+
+func CpuPercentPercore() []float64 {
+	// ดึง CPU usage ต่อ core
+	percentPerCore, err := cpu.Percent(100*time.Millisecond, true)
+	if err != nil || len(percentPerCore) == 0 {
+		log.Println(err)
+		return []float64{0.0}
+		//return nil
+
+	}
+	return percentPerCore
+}
+
+func CpuTime() []cpu.TimesStat { //[]cpu.TimesStat
+	times, err := cpu.Times(true)
+	if err != nil || len(times) == 0 {
+		return nil
+	}
+	return times
+}
+
+func CpuInfo() []cpu.InfoStat { //[]cpu.InfoStat
+	info, err := cpu.Info()
+	if err != nil || len(info) == 0 {
+		return nil
+	}
+	return info
+}
+
+func CPUdata() map[string]interface{} {
+	// gopsutil
+	info := CpuInfo()
+	physical := CpuCoreCount()  //core
+	logical := CpuThreadCount() //thread
+
+	if len(info) == 0 {
+		return map[string]interface{}{
+			"ModelName":                 "CPU : ไม่พบข้อมูล",
+			"VendorID":                  "Vendor : -",
+			"Core":                      fmt.Sprintf("Cores : %d", physical),
+			"Thread":                    fmt.Sprintf("Thread : %d", logical),
+			"FreqMax":                   "FreqMax : -",
+			"Family":                    "Family : -",
+			"Modelid":                   "Modelid : -",
+			"Stepping":                  "Stepping : -",
+			"Cachet":                    "Cache : -",
+			"Microcode":                 "Microcode : -",
+			"Hyperthreading":            fmt.Sprintf("Hyperthreading: [ %v ]\n", logical > physical),
+			"CpuThreadCoreSocketresult": "ไม่พบข้อมูล\n",
+			"Cache":                     "ไม่พบข้อมูล\n",
+			"FlagsFeature":              "-",
+		}
+	}
+
+	// ============================================================================
+	// Overview
+	// ============================================================================
+
+	//แยกส่วน
+	var modelName string
+	var vendorID string
+	var core string
+	var thread string
+	var freqMax string
+	var family string
+	var modelid string
+	var stepping string
+	var cachet string
+	var microcode string
+
+	modelName = fmt.Sprintf("CPU : %s", info[0].ModelName)
+	vendorID = fmt.Sprintf("Vendor : %s", info[0].VendorID)
+	core = fmt.Sprintf("Cores : %d", physical)
+	thread = fmt.Sprintf("Thread : %d", logical)
+	freqMax = fmt.Sprintf("FreqMax : %.2f GHz", info[0].Mhz/1000)
+	family = fmt.Sprintf("Family : %s", info[0].Family)
+	modelid = fmt.Sprintf("Modelid : %s", info[0].Model)
+	stepping = fmt.Sprintf("Stepping : %d", info[0].Stepping)
+	cachet = fmt.Sprintf("Cache : %d MB", info[0].CacheSize/1024)
+	microcode = fmt.Sprintf("Microcode : %s", info[0].Microcode)
+	// ============================================================================
+	// Detail
+	// ============================================================================
+	hyperthreading := fmt.Sprintf("Hyperthreading: [ %v ]\n", logical > physical)
+
+	var cpuThreadCoreSocketresult string //จำนวน thread
+	//cpuThreadCoreSocketresult += ("[  Thread  ] : [ Core ] : [ Socket ]\n")
+	for i, cpu := range info {
+		cpuThreadCoreSocketresult += fmt.Sprintf("Thread [%d] : Core [%s] : Socket [%s]\n",
+			i, cpu.CoreID, cpu.PhysicalID) //PhysicalID*socket จำนวน cpu ในบอรฺ์ด
+	}
+
+	// cpuid
+	cpuInfo := cpuid.CPU
+
+	c1d, xc1d := processValue(cpuInfo.Cache.L1D)
+	c1i, xc1i := processValue(cpuInfo.Cache.L1I)
+	c2, xc2 := processValue(cpuInfo.Cache.L2)
+	c3, xc3 := processValue(cpuInfo.Cache.L3)
+
+	var cache string //cpuid
+	//cache += "[ Cache ]\n"
+	cache += fmt.Sprintf("L1d : %d %s\n", c1d, xc1d)
+	cache += fmt.Sprintf("L1i : %d %s\n", c1i, xc1i)
+	cache += fmt.Sprintf("L2 : %d %s\n", c2, xc2)
+	cache += fmt.Sprintf("L3 : %d %s\n", c3, xc3)
+
+	//"BrandName":          cpuInfo.BrandName, //ชื่อ cpu
+	//"l1d_cache": cpuInfo.Cache.L1D,
+	//"l1i_cache": cpuInfo.Cache.L1I,
+	//"l2_cache":  cpuInfo.Cache.L2,
+	//"l3_cache":  cpuInfo.Cache.L3,
+	//"has_avx2": cpuInfo.Has(cpuid.AVX2),
+
+	// ============================================================================
+	// Flags Feature
+	// ============================================================================
+	var flagsfeature string
+	//flagsfeature += "\n"
+	for i, flag := range info[0].Flags {
+		flagsfeature += flag
+		if (i+1)%6 == 0 { // ทีละ 6 flags ต่อบรรทัด
+			flagsfeature += "\n"
+		} else {
+			flagsfeature += " "
+		}
+	}
+
+	return map[string]interface{}{
+		// gopsutil
+		"FlagsFeature":              flagsfeature,
+		"ModelName":                 modelName,
+		"VendorID":                  vendorID,
+		"Core":                      core,
+		"Thread":                    thread,
+		"FreqMax":                   freqMax,
+		"Family":                    family,
+		"Modelid":                   modelid,
+		"Stepping":                  stepping,
+		"Cachet":                    cachet,
+		"Microcode":                 microcode,
+		"Hyperthreading":            hyperthreading,
+		"CpuThreadCoreSocketresult": cpuThreadCoreSocketresult,
+		"Cache":                     cache, //cpuid
+	}
+}
+
+// ============================================================================
+// monitor
+// ============================================================================
+type StCPUData struct {
+	Usage string //
+	//Timesusage string
+	UsagepercentTotal         string
+	UsagepercentPerCoreSTRING string
+	TimesTotalAvg             string
+	TimesSec                  string
+	TimesHms                  string
+	UsagePerCore              []float64 // CPU usage ต่อ core
+	PercentPerCore            string
+	Times                     []cpu.TimesStat
+	//////////////////////
+
+}
+type CPUMonitor struct {
+	ticker   *time.Ticker
+	callback func(StCPUData)
+}
+
+// สร้าง instance ใหม่
+func NewCPUMonitor(interval time.Duration, callback func(StCPUData)) *CPUMonitor {
+	return &CPUMonitor{
+		ticker:   time.NewTicker(interval),
+		callback: callback,
+	}
+}
+
+// เริ่ม monitoring
+func (m *CPUMonitor) Start() {
+	go func() {
+		for range m.ticker.C {
+
+			percentTotal := CpuPercentAVG()
+			percentPerCore := CpuPercentPercore()
+			//จัดเรียง usage
+
+			usagepercentTotal := fmt.Sprintf("%.2f %%\n", percentTotal[0]) //percentTotal[0]			// แสดง usage ต่อ core
+			var usagepercentPerCore string
+			//usagepercentPerCore += "[ Usage PerCore ]\n"
+			for i, pc := range percentPerCore {
+				usagepercentPerCore += fmt.Sprintf("Core [ %d ] : %.2f %%\n", i, pc)
+			}
+
+			var timesTotalAvg string
+			var timesSec string
+			//timesSec += "[ ข้อมูลดิบ ]"
+			var timesHms string
+			//timesHms += "[ แปลงเป็นเวลาสากล ]"
+			var totalUser float64
+			var totalSystem float64
+			var totalIdle float64
+			var totalNice float64
+			var totalIowait float64
+			var totalIrq float64
+			var totalSoftirq float64
+			var totalSteal float64
+			var totalGuest float64
+			var totalGuestNice float64
+
+			//Times
+			times := CpuTime()
+
+			for _, d := range times {
+				totalUser += d.User
+				totalSystem += d.System
+				totalIdle += d.Idle //รวม idle
+				totalNice += d.Nice
+				totalIowait += d.Iowait
+				totalIrq += d.Irq
+				totalSoftirq += d.Softirq
+				totalSteal += d.Steal
+				totalGuest += d.Guest
+				totalGuestNice += d.GuestNice
+
+				nCPU := d.CPU
+				//วินาที *ดิบ
+				timesSec += fmt.Sprintf(
+					"[ %s ] | User: %.2f s | System: %.2f s | Idle: %.2f s | Nice: %.2f s | Iowait: %.2f s | Irq %.2f s | Softirq %.2f s | Steal %.2f s | Guest %.2f s | GuestNice %.2f s\n",
+					nCPU, d.User, d.System, d.Idle, d.Nice, d.Iowait, d.Irq, d.Softirq, d.Steal, d.Guest, d.GuestNice)
+
+				//แปลงเป็นเวลาสากล
+				thUser, tmUser, tsUser := processTimeS(d.User)
+				thSystem, tmSystem, tsSystem := processTimeS(d.System)
+				thIdle, tmIdle, tsIdle := processTimeS(d.Idle)
+				thNice, tmNice, tsNice := processTimeS(d.Nice)
+				thIowait, tmIowait, tsIowait := processTimeS(d.Iowait)
+				thIrq, tmIrq, tsIrq := processTimeS(d.Irq)
+				thSoftirq, tmSoftirq, tsSoftirq := processTimeS(d.Softirq)
+				thSteal, tmSteal, tsSteal := processTimeS(d.Steal)
+				thGuest, tmGuest, tsGuest := processTimeS(d.Guest)
+				thGuestNice, tmGuestNice, tsGuestNice := processTimeS(d.GuestNice)
+
+				//จัดเรียงเวลาสากล
+				timesHms += fmt.Sprintf(
+					"[ %s ] | User [ %d : %d : %d ] | System [ %d : %d : %d ] | Idle [ %d : %d : %d ] | Nice [ %d : %d : %d ] | Iowait [ %d : %d : %d ] | Irq [ %d : %d : %d ] | Softirq [ %d : %d : %d ] | Steal [ %d : %d : %d ] | Guest [ %d : %d : %d ] | GuestNice [ %d : %d : %d ]\n",
+					nCPU, thUser, tmUser, tsUser, thSystem, tmSystem, tsSystem, thIdle, tmIdle, tsIdle, thNice, tmNice, tsNice, thIowait, tmIowait, tsIowait, thIrq, tmIrq, tsIrq, thSoftirq, tmSoftirq, tsSoftirq, thSteal, tmSteal, tsSteal, thGuest, tmGuest, tsGuest, thGuestNice, tmGuestNice, tsGuestNice)
+
+				//AVG//เวลาโดยเฉลี่ย
+				// ***แยก system กับ idle
+				hUser, mUser, sUser := Avg(totalUser)
+				hSystem, mSystem, sSysteme := Avg(totalSystem)
+				hIdle, mIdle, sIdle := Avg(totalIdle)
+				hNice, mNice, sNice := Avg(totalNice)
+				hIowait, mIowait, sIowait := Avg(totalIowait)
+				hIrq, mIrq, sIrq := Avg(totalIrq)
+				hSoftirq, mSoftirq, sSoftirq := Avg(totalSoftirq)
+				hSteal, mSteal, sSteal := Avg(totalSteal)
+				hGuest, mGuest, sGuest := Avg(totalGuest)
+				hGuestNice, mGuestNice, sGuestNice := Avg(totalGuestNice)
+				//จัดเรียงเวลาโดยเฉลี่ย
+				timesTotalAvg = fmt.Sprintf(
+					"| User [ %d : %d : %d ] | System [ %d : %d : %d ] | Idle [ %d : %d : %d ] | Nice [ %d : %d : %d ] | Iowait [ %d : %d : %d ] | Irq [ %d : %d : %d ] | Softirq [ %d : %d : %d ] | Steal [ %d : %d : %d ] | Guest [ %d : %d : %d ] | GuestNice [ %d : %d : %d ]\n",
+					hUser, mUser, sUser, hSystem, mSystem, sSysteme, hIdle, mIdle, sIdle, hNice, mNice, sNice, hIowait, mIowait, sIowait, hIrq, mIrq, sIrq, hSoftirq, mSoftirq, sSoftirq, hSteal, mSteal, sSteal, hGuest, mGuest, sGuest, hGuestNice, mGuestNice, sGuestNice)
+			}
+
+			if len(percentTotal) > 0 {
+
+				data := StCPUData{
+					//Usage: usage,
+					//Timesusage: timesusage,
+					UsagepercentTotal:         usagepercentTotal,
+					UsagepercentPerCoreSTRING: usagepercentPerCore,
+					TimesTotalAvg:             timesTotalAvg,
+					TimesSec:                  timesSec,
+					TimesHms:                  timesHms,
+				}
+
+				m.callback(data)
+
+			}
+
+		}
+
+	}()
+}
+
+// ============================================================================
+// cache
+// ============================================================================
+// ฟังก์ชันประมวลผลค่าด้วย switch case
+func processValue(value int) (int, string) {
+	// ตัวอักษร flag ที่สัมผัส
+	var x string = ""
+	// ตรวจสอบเงื่อนไข //แบบ บนลงล่าง
+	switch {
+	case value >= 1099511627776:
+		value = value / 1099511627776
+		x = "TB"
+	case value >= 1073741824:
+		value = value / 1073741824
+		x = "GB"
+	case value >= 1048576:
+		value = value / 1048576
+		x = "MB"
+	case value >= 1000:
+		value = value / 1024
+		x = "KB"
+	default:
+		x = "B"
+	}
+	return value, x
+}
+
+// ============================================================================
+// เวลา
+// ============================================================================
+func processTimeS(value float64) (int, int, int) {
+
+	hours := int(value) / 3600            // หาชั่วโมง  (int หาร int จะเป็นการหารไม่เอาเศษโดยอัตโนมัติ) *หารไม่เอาเศษ
+	remainingSeconds := int(value) % 3600 //หาเศษวินาทีที่เหลือ *% หารเพื่อเอาเศษ
+	minutes := remainingSeconds / 60      //  นำเศษที่เหลือมาหาหน่วยนาที *แบบไม่เอาเศษและวินาทีสุดท้าย
+	seconds := remainingSeconds % 60      //และวินาทีสุดท้าย *หารเอาเศษ
+
+	return hours, minutes, seconds
+}
+
+// ============================================================================
+// หาค่าเฉลี่ย
+// ============================================================================
+func numSumAndCount(value []int) (int, int) {
+	sum := 0
+	count := 0
+	for _, x := range value {
+		sum += x
+		if x > 0 { // ถ้ามากกว่า 0 ให้นับเพิ่ม
+			count++
+		}
+	}
+	return sum, count
+}
+
+func Avg(value float64) (int, int, int) {
+	Core := CpuCoreCount()
+	if Core == 0 {
+		return 0, 0, 0
+	}
+	a1 := int(value) / int(Core)
+	a2 := float64(a1)
+	b1, b2, b3 := processTimeS(a2)
+	return b1, b2, b3
+}
+
+// ============================================================================
+// กราฟ
+// ============================================================================
+
+func grid() fyne.CanvasObject {
+	coreCount := CpuCoreCount()
+
+	colors := []color.RGBA{
+		{0, 255, 0, 255},
+		{0, 128, 255, 255},
+		{255, 0, 0, 255},
+		{255, 255, 0, 255},
+		{255, 0, 255, 255},
+		{0, 255, 255, 255},
+		{255, 128, 0, 255},
+		{128, 255, 0, 255},
+	}
+
+	cards := make([]*CoreCard, coreCount)
+	items := make([]fyne.CanvasObject, coreCount)
+
+	for i := 0; i < coreCount; i++ {
+		c := NewCoreCard(i, colors[i%len(colors)])
+		cards[i] = c
+		items[i] = c.root
+	}
+
+	grid := container.NewGridWithColumns(1, items...)
+
+	go func() {
+		for {
+			values := CpuPercentPercore()
+
+			for i, c := range cards {
+				if i < len(values) {
+					v := values[i]
+					c.graph.Update(v)
+					c.val.Set(v)
+				}
+			}
+
+			fyne.Do(func() {
+				for _, c := range cards {
+					c.raster.Refresh()
+				}
+			})
+			time.Sleep(100 * time.Millisecond)
+		}
+
+	}()
+	return grid
+}
+
+var cpuDetailLabel *widget.Label //ประกาศแบบ golbal
+func CPUDetailLabelcmd(text string) {
+	if cpuDetailLabel != nil {
+		cpuDetailLabel.SetText(text)
+	}
+}
+
+var cacheLabel *widget.Label //ประกาศแบบ golbal
+func CacheLabelcmd(text string) {
+	if cacheLabel != nil {
+		cacheLabel.SetText(text)
+	}
+}
+
+// ============================================================================
+// CpuTabs
+// ============================================================================
+func CpuTabs(w fyne.Window) fyne.CanvasObject {
+
+	dataCPUInfo := CPUdata()
+
+	cpuDetailLabel = widget.NewLabel("")
+	cacheLabel = widget.NewLabel("")
+
+	CPU := container.NewVBox(
+		widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["ModelName"])),
+		widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["FreqMax"])),
+		widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["Core"])),
+		widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["Thread"])),
+	)
+	Vendor := container.NewVBox(
+		widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["VendorID"])),
+		widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["Family"])),
+		widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["Modelid"])),
+		widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["Stepping"])),
+		//widget.NewSeparator(),
+		widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["Cachet"])),
+		widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["Microcode"])),
+	)
+
+	cpuOverviewPage := container.NewVBox(
+		widget.NewCard("CPU", "", CPU),
+		widget.NewCard("Vendor", "", Vendor),
+
+		//widget.NewSeparator(),
+		widget.NewCard("Hyper Threading", "", widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["Hyperthreading"]))),
+		widget.NewCard("Thread", "#ยังมีข้อผิดพลาด", widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["CpuThreadCoreSocketresult"]))),
+	)
+	cachePage := container.NewVBox(
+		widget.NewCard("Cache", "ข้อมูลอาจไม่ตรง", widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["Cache"]))), //cpuid
+		widget.NewCard("Cache Detail", "", cacheLabel),
+	)
+
+	/*
+		cpuFlagsFeaturePage := container.NewVBox(
+			widget.NewCard("Flags Feature", "", widget.NewLabel(fmt.Sprintf("%s", dataCPUInfo["FlagsFeature"]))),
+		)
+	*/
+
+	//cpuUsagePage//
+	usagepercentTotalLabel := widget.NewLabel("usagepercentTotalLabel...")
+	usagepercentTotalLabel.Alignment = fyne.TextAlignCenter
+	usagePerCoreSTRINGLabel := widget.NewLabel("usagePerCoreSTRINGLabel...")
+	usagePerCoreSTRINGLabel.Alignment = fyne.TextAlignCenter
+
+	//cpuTimesusagePage//
+	timesTotalAvg := widget.NewLabel("timesTotalAvg...")
+	timesSec := widget.NewLabel("timesSec...")
+	timesHms := widget.NewLabel("timesHms...")
+
+	// สร้าง monitor cpu
+	monitor := NewCPUMonitor(1*time.Second, func(data StCPUData) {
+		fyne.Do(func() {
+			usagepercentTotalLabel.SetText(fmt.Sprintf("%s", data.UsagepercentTotal))          //4 // แสดง usage รวม
+			usagePerCoreSTRINGLabel.SetText(fmt.Sprintf("%s", data.UsagepercentPerCoreSTRING)) //4 // แสดง usage รวม
+			timesTotalAvg.SetText(fmt.Sprintf("%s", data.TimesTotalAvg))
+			timesSec.SetText(fmt.Sprintf("%s", data.TimesSec))
+			timesHms.SetText(fmt.Sprintf("%s", data.TimesHms))
+
+		})
+	})
+	monitor.Start() // เริ่ม monitoring
+
+	grid := grid()
+	//layout
+	Grid := container.NewBorder(nil, nil, nil, nil, grid)
+
+	cpuUsagePage := container.NewVBox(
+		container.NewBorder(
+			widget.NewCard("กราฟ", "", Grid),
+			//Grid,
+			nil,
+			nil,
+			nil,
+		),
+		container.NewVBox(
+			widget.NewCard("AVG", "", usagepercentTotalLabel),
+			//usagepercentTotalLabel,
+			widget.NewCard("PerCore", "", usagePerCoreSTRINGLabel),
+			//usagePerCoreSTRINGLabel,
+		),
+	)
+
+	abt := widget.NewLabel(
+		`[ User : CPU กำลังรันโปรแกรมทั่วไปของผู้ใช้ (โหมด user space) ]
+[ System : CPU กำลังทำงานในโหมดเคอร์เนล (เช่น ระบบเรียกไฟล์, จัดการหน่วยความจำ) ]
+[ Idle : CPU ไม่ได้ทำอะไร ไม่มีงานรอทำ ]
+[ Nice : เหมือน user mode แต่เป็นกระบวนการที่ถูกลด priority (nice value > 0) ]
+[ Iowait : ว่าง แต่มีกระบวนการรอ I/O (disk/SSD) อยู่ ถ้าค่าสูงแสดงว่า ssd ช้า ]
+[ Irq : กำลังทำงานตาม hardware interrupt (เช่น เมาส์, การ์ดเน็ตเวิร์ก) ]
+[ Softirq : งานต่อเนื่องจาก interrupt (มักเป็นงานเครือข่ายหรือ task scheduling) ]
+[ Steal : บน VM: CPU ถูก hypervisor แย่งไปให้ VM อื่น ]
+[ Guest : กำลังรัน VM อื่น (CPU ทำงานในโหมด guest OS) ]
+[ GuestNice : VM ใช้แบบ nice priority *ทำงาน แต่โดนลด priority บน host ]
+ 		**VM = Virtual Machine
+`)
+
+	//cpuTimesusagePage
+	cpuTimesusagePage := container.NewVBox(
+		widget.NewCard("เฉลี่ย", "", timesTotalAvg),
+		//widget.NewSeparator(),
+		widget.NewCard("ข้อมูลดิบ", "", timesSec),
+		widget.NewCard("แปลงเป็นเวลาสากล", "", timesHms),
+		widget.NewCard("ความหมาย", "", abt),
+	)
+
+	Detail_cpu := container.NewVBox(
+		//detail
+		widget.NewCard("Detail", "", cpuDetailLabel),
+	)
+
+	cpuControlPage := CpuControl(w)
+
+	return container.NewAppTabs(
+		container.NewTabItem("Overview", container.NewScroll(cpuOverviewPage)),
+		//container.NewTabItem("Flags Feature", container.NewScroll(cpuFlagsFeaturePage)),
+		container.NewTabItem("Cache", container.NewScroll(cachePage)),
+		container.NewTabItem("Detail", container.NewScroll(Detail_cpu)),
+		container.NewTabItem("Usage", container.NewScroll(cpuUsagePage)),
+		container.NewTabItem("TimeUsage", container.NewScroll(cpuTimesusagePage)),
+		container.NewTabItem("Control", container.NewScroll(cpuControlPage)),
+	)
+}
