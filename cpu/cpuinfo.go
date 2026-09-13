@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -211,8 +212,12 @@ type StCPUData struct {
 
 }
 type CPUMonitor struct {
-	ticker   *time.Ticker
-	callback func(StCPUData)
+	ticker    *time.Ticker
+	callback  func(StCPUData)
+	stop      chan struct{}
+	done      chan struct{}
+	startOnce sync.Once
+	stopOnce  sync.Once
 }
 
 // สร้าง instance ใหม่
@@ -220,116 +225,135 @@ func NewCPUMonitor(interval time.Duration, callback func(StCPUData)) *CPUMonitor
 	return &CPUMonitor{
 		ticker:   time.NewTicker(interval),
 		callback: callback,
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 }
 
 // เริ่ม monitoring
 func (m *CPUMonitor) Start() {
-	go func() {
-		for range m.ticker.C {
+	m.startOnce.Do(func() {
+		go func() {
+			defer close(m.done)
+			for {
+				select {
+				case <-m.stop:
+					return
+				case <-m.ticker.C:
 
-			percentTotal := CpuPercentAVG()
-			percentPerCore := CpuPercentPercore()
-			//จัดเรียง usage
+					percentTotal := CpuPercentAVG()
+					percentPerCore := CpuPercentPercore()
+					//จัดเรียง usage
 
-			usagepercentTotal := fmt.Sprintf("%.2f %%\n", percentTotal[0]) //percentTotal[0]			// แสดง usage ต่อ core
-			var usagepercentPerCore string
-			//usagepercentPerCore += "[ Usage PerCore ]\n"
-			for i, pc := range percentPerCore {
-				usagepercentPerCore += fmt.Sprintf("Core [ %d ] : %.2f %%\n", i, pc)
-			}
+					usagepercentTotal := fmt.Sprintf("%.2f %%\n", percentTotal[0]) //percentTotal[0]			// แสดง usage ต่อ core
+					var usagepercentPerCore string
+					//usagepercentPerCore += "[ Usage PerCore ]\n"
+					for i, pc := range percentPerCore {
+						usagepercentPerCore += fmt.Sprintf("Core [ %d ] : %.2f %%\n", i, pc)
+					}
 
-			var timesTotalAvg string
-			var timesSec string
-			//timesSec += "[ ข้อมูลดิบ ]"
-			var timesHms string
-			//timesHms += "[ แปลงเป็นเวลาสากล ]"
-			var totalUser float64
-			var totalSystem float64
-			var totalIdle float64
-			var totalNice float64
-			var totalIowait float64
-			var totalIrq float64
-			var totalSoftirq float64
-			var totalSteal float64
-			var totalGuest float64
-			var totalGuestNice float64
+					var timesTotalAvg string
+					var timesSec string
+					//timesSec += "[ ข้อมูลดิบ ]"
+					var timesHms string
+					//timesHms += "[ แปลงเป็นเวลาสากล ]"
+					var totalUser float64
+					var totalSystem float64
+					var totalIdle float64
+					var totalNice float64
+					var totalIowait float64
+					var totalIrq float64
+					var totalSoftirq float64
+					var totalSteal float64
+					var totalGuest float64
+					var totalGuestNice float64
 
-			//Times
-			times := CpuTime()
+					//Times
+					times := CpuTime()
 
-			for _, d := range times {
-				totalUser += d.User
-				totalSystem += d.System
-				totalIdle += d.Idle //รวม idle
-				totalNice += d.Nice
-				totalIowait += d.Iowait
-				totalIrq += d.Irq
-				totalSoftirq += d.Softirq
-				totalSteal += d.Steal
-				totalGuest += d.Guest
-				totalGuestNice += d.GuestNice
+					for _, d := range times {
+						totalUser += d.User
+						totalSystem += d.System
+						totalIdle += d.Idle //รวม idle
+						totalNice += d.Nice
+						totalIowait += d.Iowait
+						totalIrq += d.Irq
+						totalSoftirq += d.Softirq
+						totalSteal += d.Steal
+						totalGuest += d.Guest
+						totalGuestNice += d.GuestNice
 
-				nCPU := d.CPU
-				//วินาที *ดิบ
-				timesSec += fmt.Sprintf(
-					"[ %s ] | User: %.2f s | System: %.2f s | Idle: %.2f s | Nice: %.2f s | Iowait: %.2f s | Irq %.2f s | Softirq %.2f s | Steal %.2f s | Guest %.2f s | GuestNice %.2f s\n",
-					nCPU, d.User, d.System, d.Idle, d.Nice, d.Iowait, d.Irq, d.Softirq, d.Steal, d.Guest, d.GuestNice)
+						nCPU := d.CPU
+						//วินาที *ดิบ
+						timesSec += fmt.Sprintf(
+							"[ %s ] | User: %.2f s | System: %.2f s | Idle: %.2f s | Nice: %.2f s | Iowait: %.2f s | Irq %.2f s | Softirq %.2f s | Steal %.2f s | Guest %.2f s | GuestNice %.2f s\n",
+							nCPU, d.User, d.System, d.Idle, d.Nice, d.Iowait, d.Irq, d.Softirq, d.Steal, d.Guest, d.GuestNice)
 
-				//แปลงเป็นเวลาสากล
-				thUser, tmUser, tsUser := processTimeS(d.User)
-				thSystem, tmSystem, tsSystem := processTimeS(d.System)
-				thIdle, tmIdle, tsIdle := processTimeS(d.Idle)
-				thNice, tmNice, tsNice := processTimeS(d.Nice)
-				thIowait, tmIowait, tsIowait := processTimeS(d.Iowait)
-				thIrq, tmIrq, tsIrq := processTimeS(d.Irq)
-				thSoftirq, tmSoftirq, tsSoftirq := processTimeS(d.Softirq)
-				thSteal, tmSteal, tsSteal := processTimeS(d.Steal)
-				thGuest, tmGuest, tsGuest := processTimeS(d.Guest)
-				thGuestNice, tmGuestNice, tsGuestNice := processTimeS(d.GuestNice)
+						//แปลงเป็นเวลาสากล
+						thUser, tmUser, tsUser := processTimeS(d.User)
+						thSystem, tmSystem, tsSystem := processTimeS(d.System)
+						thIdle, tmIdle, tsIdle := processTimeS(d.Idle)
+						thNice, tmNice, tsNice := processTimeS(d.Nice)
+						thIowait, tmIowait, tsIowait := processTimeS(d.Iowait)
+						thIrq, tmIrq, tsIrq := processTimeS(d.Irq)
+						thSoftirq, tmSoftirq, tsSoftirq := processTimeS(d.Softirq)
+						thSteal, tmSteal, tsSteal := processTimeS(d.Steal)
+						thGuest, tmGuest, tsGuest := processTimeS(d.Guest)
+						thGuestNice, tmGuestNice, tsGuestNice := processTimeS(d.GuestNice)
 
-				//จัดเรียงเวลาสากล
-				timesHms += fmt.Sprintf(
-					"[ %s ] | User [ %d : %d : %d ] | System [ %d : %d : %d ] | Idle [ %d : %d : %d ] | Nice [ %d : %d : %d ] | Iowait [ %d : %d : %d ] | Irq [ %d : %d : %d ] | Softirq [ %d : %d : %d ] | Steal [ %d : %d : %d ] | Guest [ %d : %d : %d ] | GuestNice [ %d : %d : %d ]\n",
-					nCPU, thUser, tmUser, tsUser, thSystem, tmSystem, tsSystem, thIdle, tmIdle, tsIdle, thNice, tmNice, tsNice, thIowait, tmIowait, tsIowait, thIrq, tmIrq, tsIrq, thSoftirq, tmSoftirq, tsSoftirq, thSteal, tmSteal, tsSteal, thGuest, tmGuest, tsGuest, thGuestNice, tmGuestNice, tsGuestNice)
+						//จัดเรียงเวลาสากล
+						timesHms += fmt.Sprintf(
+							"[ %s ] | User [ %d : %d : %d ] | System [ %d : %d : %d ] | Idle [ %d : %d : %d ] | Nice [ %d : %d : %d ] | Iowait [ %d : %d : %d ] | Irq [ %d : %d : %d ] | Softirq [ %d : %d : %d ] | Steal [ %d : %d : %d ] | Guest [ %d : %d : %d ] | GuestNice [ %d : %d : %d ]\n",
+							nCPU, thUser, tmUser, tsUser, thSystem, tmSystem, tsSystem, thIdle, tmIdle, tsIdle, thNice, tmNice, tsNice, thIowait, tmIowait, tsIowait, thIrq, tmIrq, tsIrq, thSoftirq, tmSoftirq, tsSoftirq, thSteal, tmSteal, tsSteal, thGuest, tmGuest, tsGuest, thGuestNice, tmGuestNice, tsGuestNice)
 
-				//AVG//เวลาโดยเฉลี่ย
-				// ***แยก system กับ idle
-				hUser, mUser, sUser := Avg(totalUser)
-				hSystem, mSystem, sSysteme := Avg(totalSystem)
-				hIdle, mIdle, sIdle := Avg(totalIdle)
-				hNice, mNice, sNice := Avg(totalNice)
-				hIowait, mIowait, sIowait := Avg(totalIowait)
-				hIrq, mIrq, sIrq := Avg(totalIrq)
-				hSoftirq, mSoftirq, sSoftirq := Avg(totalSoftirq)
-				hSteal, mSteal, sSteal := Avg(totalSteal)
-				hGuest, mGuest, sGuest := Avg(totalGuest)
-				hGuestNice, mGuestNice, sGuestNice := Avg(totalGuestNice)
-				//จัดเรียงเวลาโดยเฉลี่ย
-				timesTotalAvg = fmt.Sprintf(
-					"| User [ %d : %d : %d ] | System [ %d : %d : %d ] | Idle [ %d : %d : %d ] | Nice [ %d : %d : %d ] | Iowait [ %d : %d : %d ] | Irq [ %d : %d : %d ] | Softirq [ %d : %d : %d ] | Steal [ %d : %d : %d ] | Guest [ %d : %d : %d ] | GuestNice [ %d : %d : %d ]\n",
-					hUser, mUser, sUser, hSystem, mSystem, sSysteme, hIdle, mIdle, sIdle, hNice, mNice, sNice, hIowait, mIowait, sIowait, hIrq, mIrq, sIrq, hSoftirq, mSoftirq, sSoftirq, hSteal, mSteal, sSteal, hGuest, mGuest, sGuest, hGuestNice, mGuestNice, sGuestNice)
-			}
+						//AVG//เวลาโดยเฉลี่ย
+						// ***แยก system กับ idle
+						hUser, mUser, sUser := Avg(totalUser)
+						hSystem, mSystem, sSysteme := Avg(totalSystem)
+						hIdle, mIdle, sIdle := Avg(totalIdle)
+						hNice, mNice, sNice := Avg(totalNice)
+						hIowait, mIowait, sIowait := Avg(totalIowait)
+						hIrq, mIrq, sIrq := Avg(totalIrq)
+						hSoftirq, mSoftirq, sSoftirq := Avg(totalSoftirq)
+						hSteal, mSteal, sSteal := Avg(totalSteal)
+						hGuest, mGuest, sGuest := Avg(totalGuest)
+						hGuestNice, mGuestNice, sGuestNice := Avg(totalGuestNice)
+						//จัดเรียงเวลาโดยเฉลี่ย
+						timesTotalAvg = fmt.Sprintf(
+							"| User [ %d : %d : %d ] | System [ %d : %d : %d ] | Idle [ %d : %d : %d ] | Nice [ %d : %d : %d ] | Iowait [ %d : %d : %d ] | Irq [ %d : %d : %d ] | Softirq [ %d : %d : %d ] | Steal [ %d : %d : %d ] | Guest [ %d : %d : %d ] | GuestNice [ %d : %d : %d ]\n",
+							hUser, mUser, sUser, hSystem, mSystem, sSysteme, hIdle, mIdle, sIdle, hNice, mNice, sNice, hIowait, mIowait, sIowait, hIrq, mIrq, sIrq, hSoftirq, mSoftirq, sSoftirq, hSteal, mSteal, sSteal, hGuest, mGuest, sGuest, hGuestNice, mGuestNice, sGuestNice)
+					}
 
-			if len(percentTotal) > 0 {
+					if len(percentTotal) > 0 {
 
-				data := StCPUData{
-					//Usage: usage,
-					//Timesusage: timesusage,
-					UsagepercentTotal:         usagepercentTotal,
-					UsagepercentPerCoreSTRING: usagepercentPerCore,
-					TimesTotalAvg:             timesTotalAvg,
-					TimesSec:                  timesSec,
-					TimesHms:                  timesHms,
+						data := StCPUData{
+							//Usage: usage,
+							//Timesusage: timesusage,
+							UsagepercentTotal:         usagepercentTotal,
+							UsagepercentPerCoreSTRING: usagepercentPerCore,
+							TimesTotalAvg:             timesTotalAvg,
+							TimesSec:                  timesSec,
+							TimesHms:                  timesHms,
+						}
+
+						m.callback(data)
+
+					}
+
 				}
-
-				m.callback(data)
-
 			}
 
-		}
+		}()
+	})
+}
 
-	}()
+// Stop หยุด ticker และ goroutine ของ monitor อย่างปลอดภัย
+func (m *CPUMonitor) Stop() {
+	m.stopOnce.Do(func() {
+		m.ticker.Stop()
+		close(m.stop)
+	})
+	<-m.done
 }
 
 // ============================================================================
@@ -533,6 +557,9 @@ func CpuTabs(w fyne.Window) fyne.CanvasObject {
 		})
 	})
 	monitor.Start() // เริ่ม monitoring
+	w.SetOnClosed(func() {
+		monitor.Stop()
+	})
 
 	grid := grid()
 	//layout
