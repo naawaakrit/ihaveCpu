@@ -1,28 +1,67 @@
-ชื่อแอพ - ihaveCpu
-คุณสมบัติ
+# ihaveCpu
 
-- ใช้สำหรับตรวจสอบสเปกและสถานะฮาร์ดแวร์คอมพิวเตอร์
+โปรแกรม Linux สำหรับตรวจสอบสเปกและสถานะฮาร์ดแวร์ เช่น CPU, RAM, BIOS,
+เมนบอร์ด, PCIe และพลังงาน รวมถึงปรับค่าความถี่และ governor ของ CPU
+บนเครื่องที่ kernel รองรับ interface `cpufreq`.
 
-ขั้นตอนการใช้งาน
-แบบง่ายที่สุด
+## การใช้งานด้วย AppImage
 
-- โหลด ihaveCpu-x86_64.AppImage
+ไฟล์ที่เตรียมไว้คือ `ihaveCpu-x86_64.AppImage` สำหรับ Linux x86_64:
 
-วิธีการใช้งาน
+```bash
+chmod +x ihaveCpu-x86_64.AppImage
+./ihaveCpu-x86_64.AppImage
+```
 
-1. เปิดโปรแกรม ihaveCpu-x86_64.AppImage
-2. กดแท็บหัวข้อที่ต้องการตรวจสอบ
+AppImage ยังต้องมี dependency ของระบบตามหัวข้อด้านล่าง โดยเฉพาะ `pkexec`
+และ `dmidecode` หากต้องการอ่านข้อมูล DMI/BIOS หรือปรับค่าความถี่ CPU.
 
-คุณสมบัติเด่น
+## Dependency ที่ต้องมี
 
-- สามารถปรับระดับความเร็วต่ำสุด-สูงสุดของ CPU ได้
-- ดูสถานะการทำงานของ CPU
+### ใช้งานโปรแกรม
 
-คุณสมบัติด้อย (ที่ควรระวัง)
+- Linux kernel ที่เปิดใช้งาน `/sys` และ `/sys/devices/system/cpu`
+- `bash`
+- `pkexec` และ PolicyKit authentication agent สำหรับขอสิทธิ์ผู้ดูแลระบบ
+- `dmidecode` สำหรับข้อมูล BIOS, เมนบอร์ด และข้อมูล DMI
+- ระบบกราฟิกที่รองรับแอป Fyne เช่น X11 หรือ Wayland พร้อม OpenGL
 
-- จำเป็นต้องเข้าถึงไฟล์ระบบ
+### Build จาก source
+
+- Go `1.26.4` หรือเวอร์ชันที่ระบุใน `go.mod`
+- C compiler และ development libraries สำหรับ Fyne/OpenGL ของ distro
+- dependency ของ Go จะถูกดาวน์โหลดจาก `go.mod` และ `go.sum`
+
+ตัวอย่างคำสั่งตรวจสอบและ build:
+
+```bash
+go test ./...
+go build -o ihaveCpu .
+```
+
+## Distro ที่รองรับ
+
+โครงการนี้มุ่งเป้าไปที่ Linux แบบ x86_64 ที่มี package เหล่านี้ โดยคาดว่าใช้ได้กับ:
+
+- Ubuntu และ Debian
+- Fedora
+- Arch Linux และ distro ที่พัฒนาต่อยอดจาก Arch
+
+ต้องติดตั้งชื่อ package ให้ตรงกับ distro และอาจต้องติดตั้ง PolicyKit agent
+เพิ่มใน desktop environment บางแบบ ฟีเจอร์ควบคุมความถี่อาจใช้ไม่ได้บนเครื่องที่
+ใช้ไดรเวอร์ CPU หรือ kernel ซึ่งไม่มี `cpufreq` interface.
+
+## สิทธิ์ที่ต้องใช้
+
+- การอ่านข้อมูลทั่วไปใช้สิทธิ์ผู้ใช้ปกติเป็นส่วนใหญ่
+- การอ่านข้อมูลจาก `dmidecode` และการเขียนค่า CPU ใช้สิทธิ์ผู้ดูแลระบบ
+- โปรแกรมเรียก `pkexec` เพื่อแสดงหน้าต่างยืนยันสิทธิ์โดยไม่ต้องเปิดโปรแกรมทั้งตัวด้วย root
+- ต้องมีสิทธิ์เข้าถึงไฟล์ระบบภายใต้ `/sys`
+
+การปรับความถี่ CPU มีผลต่อประสิทธิภาพ อุณหภูมิ และการใช้พลังงาน ควรตรวจสอบค่า
+ก่อนกด Apply และใช้ค่าที่ hardware/kernel รองรับเท่านั้น
 
 ## License
 
 This project is licensed under the GNU GPL v3 License.
-คำอธิบายภาษาไทยดูได้ที่ `LICENSE.th.md`
+คำอธิบายภาษาไทยดูได้ที่ [LICENSE.th](LICENSE.th)
