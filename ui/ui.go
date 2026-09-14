@@ -8,16 +8,13 @@ import (
 	"embed"
 	biosinfo "ihavecpu/bios"
 	cpuinfo "ihavecpu/cpu"
+	"ihavecpu/hardware"
 	mainboardinfo "ihavecpu/mainboard"
 	pcie "ihavecpu/pcie"
 	pcieinfo "ihavecpu/pcie"
 	powerinfo "ihavecpu/power"
 	raminfo "ihavecpu/ram"
 	systeminfo "ihavecpu/system"
-
-	"fmt"
-	"os/exec"
-	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -51,55 +48,6 @@ var iconFS embed.FS
 var fontItim []byte
 var myFont = fyne.NewStaticResource("Itim-Regular.ttf", fontItim)
 
-func GetDataIn() (string, string, string, string, string, string, string, string, string, error) {
-	// เปลี่ยนจาก "sudo" เป็น "pkexec"
-	cmd := exec.Command("pkexec", "sh", "-c",
-		`dmidecode -t 1 && dmidecode -t 3 && dmidecode -t 12 && dmidecode -t  15 && dmidecode -t 23 && dmidecode -t 24 && dmidecode -t 32
-echo '(-@_@-)' && dmidecode -t 0 && dmidecode -t 13 && dmidecode -t 40  && dmidecode -t 45
-echo '(-@_@-)' && dmidecode -t 4
-echo '(-@_@-)' && dmidecode -t 7 
-echo '(-@_@-)' && dmidecode -t 5 && dmidecode -t 6 && dmidecode -t 16 && dmidecode -t 17 && dmidecode -t 18 && dmidecode -t 19 && dmidecode -t 20 && dmidecode -t 33 && dmidecode -t 37
-echo '(-@_@-)' && dmidecode -t 2 && dmidecode -t 10 && dmidecode -t 41
-echo '(-@_@-)' && dmidecode -t 8 && dmidecode -t 9
-echo '(-@_@-)' && dmidecode -t 25 && dmidecode -t 26 && dmidecode -t 27 && dmidecode -t 28 && dmidecode -t 29 && dmidecode -t 39
-echo '(-@_@-)' && dmidecode -t 22
-
-
-`)
-	//dmidecode -t memory
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		details := strings.TrimSpace(string(out))
-		if details != "" {
-			return "", "", "", "", "", "", "", "", "", fmt.Errorf("ไม่สามารถอ่านข้อมูลฮาร์ดแวร์: %w\nรายละเอียด: %s", err, details)
-		}
-		return "", "", "", "", "", "", "", "", "", fmt.Errorf("ไม่สามารถอ่านข้อมูลฮาร์ดแวร์: %w", err)
-	}
-
-	parts := strings.Split(string(out), "(-@_@-)")
-
-	if len(parts) < 9 {
-		return "", "", "", "", "", "", "", "", "", fmt.Errorf("output ไม่ครบ: ได้ %d ส่วน", len(parts))
-	}
-
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-	}
-	//ย้าย bios มาไว้อันแรก แล้วก็เรียกมาแสดงทุก type
-	sys := parts[0]
-	bios := parts[1]
-	cpu := parts[2]
-	cache := parts[3]
-	ram := parts[4]
-	board := parts[5]
-	pcie := parts[6]
-	power := parts[7]
-	bat := parts[8]
-
-	return sys, bios, cpu, cache, ram, board, pcie, power, bat, nil
-}
-
 func CreateWindow() {
 
 	a := app.NewWithID("com.nawakarit.iHaveCPU")
@@ -118,8 +66,7 @@ func CreateWindow() {
 	pcieTabs := pcieinfo.PcieTabs()
 	powerTabs := powerinfo.PowerTabs()
 
-	sys, bios, cpu, chsche, ram, board, pcie, power, bat,
-		err := GetDataIn()
+	data, err := hardware.Load()
 
 	if err != nil {
 		w.Resize(fyne.NewSize(720, 800))
@@ -130,15 +77,15 @@ func CreateWindow() {
 	}
 
 	fyne.Do(func() {
-		systeminfo.SystemsDetailLabelcmd(sys)
-		biosinfo.BiosDetailLabelcmd(bios)
-		cpuinfo.CPUDetailLabelcmd(cpu)
-		cpuinfo.CacheLabelcmd(chsche)
-		raminfo.RamDetailLabelcmd(ram)
-		mainboardinfo.MainboardDetailLabelcmd(board)
-		pcieinfo.PcieDetailLabelcmd(pcie)
-		powerinfo.PowerDetailLabelcmd(power)
-		powerinfo.BatteryDetailLabelcmd(bat)
+		systeminfo.SystemsDetailLabelcmd(data.System)
+		biosinfo.BiosDetailLabelcmd(data.BIOS)
+		cpuinfo.CPUDetailLabelcmd(data.CPU)
+		cpuinfo.CacheLabelcmd(data.Cache)
+		raminfo.RamDetailLabelcmd(data.RAM)
+		mainboardinfo.MainboardDetailLabelcmd(data.Mainboard)
+		pcieinfo.PcieDetailLabelcmd(data.PCIe)
+		powerinfo.PowerDetailLabelcmd(data.Power)
+		powerinfo.BatteryDetailLabelcmd(data.Battery)
 
 	})
 
