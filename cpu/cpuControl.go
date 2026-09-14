@@ -508,20 +508,50 @@ func slider() (*widget.Slider, *widget.Slider, *widget.Label, *widget.Label, *wi
 	return min_freq_Slider, max_freq_Slider, min_freq_Label, max_freq_Label, entry_min, entry_max
 }
 
-func onButtonClickApply(selected []bool, min_freq_Slider, max_freq_Slider *widget.Slider, governorsST *widget.RadioGroup) {
+func onButtonClickApply(w fyne.Window, selected []bool, min_freq_Slider, max_freq_Slider *widget.Slider, governorsST *widget.RadioGroup) {
 
 	// อ่านค่าจากวิดเจต slider โดยตรง
 	freq_min := uint64(min_freq_Slider.Value)
 	freq_max := uint64(max_freq_Slider.Value)
 	governorsSt := governorsST.Selected
 
-	validGovernors := map[string]bool{
-		"performance": true, "powersave": true,
-		"ondemand": true, "schedutil": true,
-		"conservative": true, "userspace": true,
+	if freq_min > freq_max {
+		dialog.ShowError(fmt.Errorf("ความถี่ต่ำสุดต้องไม่มากกว่าความถี่สูงสุด"), w)
+		return
 	}
-	if !validGovernors[governorsSt] {
-		fmt.Println("Governor ไม่ถูกต้อง:", governorsSt)
+	if governorsSt == "" {
+		dialog.ShowError(fmt.Errorf("กรุณาเลือก governor ก่อน Apply"), w)
+		return
+	}
+	availableGovernors, err := GetGovernors()
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("ไม่สามารถอ่าน governor ที่รองรับได้: %w", err), w)
+		return
+	}
+	governorSupported := false
+	for _, available := range availableGovernors {
+		if available == governorsSt {
+			governorSupported = true
+			break
+		}
+	}
+	if !governorSupported {
+		dialog.ShowError(fmt.Errorf("เครื่องนี้ไม่รองรับ governor: %s", governorsSt), w)
+		return
+	}
+	if _, err := os.Stat("/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq"); err != nil {
+		dialog.ShowError(fmt.Errorf("ไม่พบ interface สำหรับควบคุมความถี่ CPU: %w", err), w)
+		return
+	}
+
+	selectedCount := 0
+	for _, sel := range selected {
+		if sel {
+			selectedCount++
+		}
+	}
+	if selectedCount == 0 {
+		dialog.ShowError(fmt.Errorf("กรุณาเลือก thread อย่างน้อยหนึ่งรายการ"), w)
 		return
 	}
 
@@ -536,21 +566,41 @@ func onButtonClickApply(selected []bool, min_freq_Slider, max_freq_Slider *widge
 			scriptLines = append(scriptLines, fmt.Sprintf("echo %s | tee /sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor", governorsSt, idx))
 		}
 
-		if len(scriptLines) == 0 {
-			//ฟังชั้น popup++
-			fmt.Println("ไม่พบคอร์ที่เลือกให้ปรับค่า")
-			return
-		}
-
 		script := strings.Join(scriptLines, "\n")
 
 		cmd := exec.Command("pkexec", "bash", "-c", script)
-		err := cmd.Run()
+		output, err := cmd.CombinedOutput()
 		if err != nil {
-			fmt.Println("ล้มเหลว:", err)
+			details := strings.TrimSpace(string(output))
+			message := fmt.Sprintf("ไม่สามารถ Apply ค่า CPU ได้: %v", err)
+			if details != "" {
+				message += "\n\nรายละเอียด:\n" + details
+			}
+			fyne.Do(func() {
+				dialog.ShowError(fmt.Errorf("%s", message), w)
+			})
 			return
 		}
-		fmt.Println("สำเร็จ", "[ min ]", freq_min, "kHz", "[ max ]", freq_max, "kHz")
+
+		var verification strings.Builder
+		verification.WriteString(fmt.Sprintf("ปรับค่าแล้ว %d thread\nต่ำสุด: %d kHz\nสูงสุด: %d kHz\nGovernor: %s", selectedCount, freq_min, freq_max, governorsSt))
+		for idx, sel := range selected {
+			if !sel {
+				continue
+			}
+			base := fmt.Sprintf("/sys/devices/system/cpu/cpu%d/cpufreq/", idx)
+			minValue, minErr := os.ReadFile(base + "scaling_min_freq")
+			maxValue, maxErr := os.ReadFile(base + "scaling_max_freq")
+			governorValue, governorErr := os.ReadFile(base + "scaling_governor")
+			if minErr != nil || maxErr != nil || governorErr != nil {
+				verification.WriteString(fmt.Sprintf("\nthread %d: ตรวจสอบหลังเขียนไม่ได้", idx))
+				continue
+			}
+			verification.WriteString(fmt.Sprintf("\nthread %d: min=%s max=%s governor=%s", idx, strings.TrimSpace(string(minValue)), strings.TrimSpace(string(maxValue)), strings.TrimSpace(string(governorValue))))
+		}
+		fyne.Do(func() {
+			dialog.ShowInformation("Apply สำเร็จ", verification.String(), w)
+		})
 	}()
 
 }
@@ -576,7 +626,7 @@ func CpuControl(w fyne.Window) fyne.CanvasObject {
 	governors, governorsSt := GovernorscheckBox()
 
 	apply := widget.NewButton("Apply", func() {
-		onButtonClickApply(selected, slider_min, slider_max, governorsSt)
+		onButtonClickApply(w, selected, slider_min, slider_max, governorsSt)
 	})
 
 	//min
