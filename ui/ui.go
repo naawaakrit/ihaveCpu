@@ -6,6 +6,7 @@ package ui
 
 import (
 	"embed"
+	"fmt"
 	biosinfo "ihavecpu/bios"
 	cpuinfo "ihavecpu/cpu"
 	"ihavecpu/hardware"
@@ -15,11 +16,14 @@ import (
 	powerinfo "ihavecpu/power"
 	raminfo "ihavecpu/ram"
 	systeminfo "ihavecpu/system"
+	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 )
 
 // โหลด icon
@@ -66,29 +70,6 @@ func CreateWindow() {
 	pcieTabs := pcieinfo.PcieTabs()
 	powerTabs := powerinfo.PowerTabs()
 
-	data, err := hardware.Load()
-
-	if err != nil {
-		w.Resize(fyne.NewSize(720, 800))
-		w.Show()
-		dialog.ShowError(err, w)
-		w.ShowAndRun()
-		return
-	}
-
-	fyne.Do(func() {
-		systeminfo.SystemsDetailLabelcmd(data.System)
-		biosinfo.BiosDetailLabelcmd(data.BIOS)
-		cpuinfo.CPUDetailLabelcmd(data.CPU)
-		cpuinfo.CacheLabelcmd(data.Cache)
-		raminfo.RamDetailLabelcmd(data.RAM)
-		mainboardinfo.MainboardDetailLabelcmd(data.Mainboard)
-		pcieinfo.PcieDetailLabelcmd(data.PCIe)
-		powerinfo.PowerDetailLabelcmd(data.Power)
-		powerinfo.BatteryDetailLabelcmd(data.Battery)
-
-	})
-
 	/*
 		teXt, err := raminfo.GetMemoryInfo()
 
@@ -122,8 +103,60 @@ func CreateWindow() {
 		//container.NewTabItem("Virtualization", container.NewScroll(nil)),
 	)
 
-	//w.SetContent(container.NewBorder(nil, nil, nil, nil, cpu))
-	w.SetContent(tabs)
+	lastUpdated := widget.NewLabel("อัปเดตล่าสุด: ยังไม่มีข้อมูล")
+	refreshButton := widget.NewButton("Refresh", nil)
+	var refreshMu sync.Mutex
+	loading := false
+
+	applyData := func(data hardware.Data) {
+		systeminfo.SystemsDetailLabelcmd(data.System)
+		biosinfo.BiosDetailLabelcmd(data.BIOS)
+		cpuinfo.CPUDetailLabelcmd(data.CPU)
+		cpuinfo.CacheLabelcmd(data.Cache)
+		raminfo.RamDetailLabelcmd(data.RAM)
+		mainboardinfo.MainboardDetailLabelcmd(data.Mainboard)
+		pcieinfo.PcieDetailLabelcmd(data.PCIe)
+		powerinfo.PowerDetailLabelcmd(data.Power)
+		powerinfo.BatteryDetailLabelcmd(data.Battery)
+	}
+
+	refreshData := func() {
+		refreshMu.Lock()
+		if loading {
+			refreshMu.Unlock()
+			return
+		}
+		loading = true
+		refreshMu.Unlock()
+
+		refreshButton.Disable()
+		lastUpdated.SetText("กำลังอัปเดตข้อมูล...")
+		go func() {
+			data, err := hardware.Load()
+			fyne.Do(func() {
+				defer func() {
+					refreshMu.Lock()
+					loading = false
+					refreshMu.Unlock()
+					refreshButton.Enable()
+				}()
+
+				if err != nil {
+					lastUpdated.SetText("อัปเดตไม่สำเร็จ")
+					dialog.ShowError(err, w)
+					return
+				}
+				applyData(data)
+				lastUpdated.SetText(fmt.Sprintf("อัปเดตล่าสุด: %s", time.Now().Format("2006-01-02 15:04:05")))
+			})
+		}()
+	}
+	refreshButton.OnTapped = refreshData
+
+	toolbar := container.NewBorder(nil, nil, refreshButton, nil, lastUpdated)
+	w.SetContent(container.NewBorder(toolbar, nil, nil, nil, tabs))
 	w.Resize(fyne.NewSize(720, 800))
+	w.Show()
+	refreshData()
 	w.ShowAndRun()
 }
