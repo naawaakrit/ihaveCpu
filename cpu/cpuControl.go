@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -508,7 +509,83 @@ func slider() (*widget.Slider, *widget.Slider, *widget.Label, *widget.Label, *wi
 	return min_freq_Slider, max_freq_Slider, min_freq_Label, max_freq_Label, entry_min, entry_max
 }
 
-func onButtonClickApply(w fyne.Window, selected []bool, min_freq_Slider, max_freq_Slider *widget.Slider, governorsST *widget.RadioGroup) {
+type cpuSetting struct {
+	minFreq  string
+	maxFreq  string
+	governor string
+}
+
+type cpuSettings map[int]cpuSetting
+
+func captureCPUSettings(selected []bool) (cpuSettings, error) {
+	settings := make(cpuSettings)
+	for idx, sel := range selected {
+		if !sel {
+			continue
+		}
+		base := fmt.Sprintf("/sys/devices/system/cpu/cpu%d/cpufreq/", idx)
+		minValue, minErr := os.ReadFile(base + "scaling_min_freq")
+		maxValue, maxErr := os.ReadFile(base + "scaling_max_freq")
+		governorValue, governorErr := os.ReadFile(base + "scaling_governor")
+		if minErr != nil || maxErr != nil || governorErr != nil {
+			return nil, fmt.Errorf("ไม่สามารถบันทึกค่าปัจจุบันของ thread %d", idx)
+		}
+		settings[idx] = cpuSetting{
+			minFreq:  strings.TrimSpace(string(minValue)),
+			maxFreq:  strings.TrimSpace(string(maxValue)),
+			governor: strings.TrimSpace(string(governorValue)),
+		}
+	}
+	return settings, nil
+}
+
+func writeCPUSettings(w fyne.Window, settings cpuSettings, title string) {
+	if len(settings) == 0 {
+		dialog.ShowError(fmt.Errorf("ยังไม่มีค่าที่บันทึกไว้สำหรับคืนค่า"), w)
+		return
+	}
+
+	go func() {
+		var scriptLines []string
+		for idx, setting := range settings {
+			base := fmt.Sprintf("/sys/devices/system/cpu/cpu%d/cpufreq/", idx)
+			scriptLines = append(scriptLines,
+				fmt.Sprintf("echo %s | tee %sscaling_max_freq", setting.maxFreq, base),
+				fmt.Sprintf("echo %s | tee %sscaling_min_freq", setting.minFreq, base),
+				fmt.Sprintf("echo %s | tee %sscaling_governor", setting.governor, base),
+			)
+		}
+
+		cmd := exec.Command("pkexec", "bash", "-c", strings.Join(scriptLines, "\n"))
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			details := strings.TrimSpace(string(output))
+			message := fmt.Sprintf("ไม่สามารถ%sค่า CPU ได้: %v", title, err)
+			if details != "" {
+				message += "\n\nรายละเอียด:\n" + details
+			}
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", message), w) })
+			return
+		}
+
+		var verification strings.Builder
+		verification.WriteString(fmt.Sprintf("%sค่าของ %d thread แล้ว", title, len(settings)))
+		for idx := range settings {
+			base := fmt.Sprintf("/sys/devices/system/cpu/cpu%d/cpufreq/", idx)
+			minValue, minErr := os.ReadFile(base + "scaling_min_freq")
+			maxValue, maxErr := os.ReadFile(base + "scaling_max_freq")
+			governorValue, governorErr := os.ReadFile(base + "scaling_governor")
+			if minErr != nil || maxErr != nil || governorErr != nil {
+				verification.WriteString(fmt.Sprintf("\nthread %d: ตรวจสอบหลังเขียนไม่ได้", idx))
+				continue
+			}
+			verification.WriteString(fmt.Sprintf("\nthread %d: min=%s max=%s governor=%s", idx, strings.TrimSpace(string(minValue)), strings.TrimSpace(string(maxValue)), strings.TrimSpace(string(governorValue))))
+		}
+		fyne.Do(func() { dialog.ShowInformation(title+"สำเร็จ", verification.String(), w) })
+	}()
+}
+
+func onButtonClickApply(w fyne.Window, selected []bool, min_freq_Slider, max_freq_Slider *widget.Slider, governorsST *widget.RadioGroup, saveSnapshot func(cpuSettings)) {
 
 	// อ่านค่าจากวิดเจต slider โดยตรง
 	freq_min := uint64(min_freq_Slider.Value)
@@ -555,53 +632,24 @@ func onButtonClickApply(w fyne.Window, selected []bool, min_freq_Slider, max_fre
 		return
 	}
 
-	go func() { // รันใน goroutine ไม่ให้ UI ค้าง
-		var scriptLines []string
-		for idx, sel := range selected {
-			if !sel {
-				continue
-			}
-			scriptLines = append(scriptLines, fmt.Sprintf("echo %d | tee /sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", freq_max, idx))
-			scriptLines = append(scriptLines, fmt.Sprintf("echo %d | tee /sys/devices/system/cpu/cpu%d/cpufreq/scaling_min_freq", freq_min, idx))
-			scriptLines = append(scriptLines, fmt.Sprintf("echo %s | tee /sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor", governorsSt, idx))
-		}
+	snapshot, err := captureCPUSettings(selected)
+	if err != nil {
+		dialog.ShowError(err, w)
+		return
+	}
+	saveSnapshot(snapshot)
 
-		script := strings.Join(scriptLines, "\n")
-
-		cmd := exec.Command("pkexec", "bash", "-c", script)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			details := strings.TrimSpace(string(output))
-			message := fmt.Sprintf("ไม่สามารถ Apply ค่า CPU ได้: %v", err)
-			if details != "" {
-				message += "\n\nรายละเอียด:\n" + details
+	settings := make(cpuSettings, len(selected))
+	for idx, sel := range selected {
+		if sel {
+			settings[idx] = cpuSetting{
+				minFreq:  strconv.FormatUint(freq_min, 10),
+				maxFreq:  strconv.FormatUint(freq_max, 10),
+				governor: governorsSt,
 			}
-			fyne.Do(func() {
-				dialog.ShowError(fmt.Errorf("%s", message), w)
-			})
-			return
 		}
-
-		var verification strings.Builder
-		verification.WriteString(fmt.Sprintf("ปรับค่าแล้ว %d thread\nต่ำสุด: %d kHz\nสูงสุด: %d kHz\nGovernor: %s", selectedCount, freq_min, freq_max, governorsSt))
-		for idx, sel := range selected {
-			if !sel {
-				continue
-			}
-			base := fmt.Sprintf("/sys/devices/system/cpu/cpu%d/cpufreq/", idx)
-			minValue, minErr := os.ReadFile(base + "scaling_min_freq")
-			maxValue, maxErr := os.ReadFile(base + "scaling_max_freq")
-			governorValue, governorErr := os.ReadFile(base + "scaling_governor")
-			if minErr != nil || maxErr != nil || governorErr != nil {
-				verification.WriteString(fmt.Sprintf("\nthread %d: ตรวจสอบหลังเขียนไม่ได้", idx))
-				continue
-			}
-			verification.WriteString(fmt.Sprintf("\nthread %d: min=%s max=%s governor=%s", idx, strings.TrimSpace(string(minValue)), strings.TrimSpace(string(maxValue)), strings.TrimSpace(string(governorValue))))
-		}
-		fyne.Do(func() {
-			dialog.ShowInformation("Apply สำเร็จ", verification.String(), w)
-		})
-	}()
+	}
+	writeCPUSettings(w, settings, "Apply")
 
 }
 
@@ -611,6 +659,8 @@ func CpuControl(w fyne.Window) fyne.CanvasObject {
 	perCore := sysCPUFreqUpdate()
 	info, _, _ := getCPUhardware(0)
 	slider_min, slider_max, label_min, label_max, entry_min, entry_max := slider()
+	var snapshotMu sync.Mutex
+	var savedSettings cpuSettings
 
 	chekCpu, selected, checkboxes, updateLabel := checkboxNumcpu()
 
@@ -626,7 +676,17 @@ func CpuControl(w fyne.Window) fyne.CanvasObject {
 	governors, governorsSt := GovernorscheckBox()
 
 	apply := widget.NewButton("Apply", func() {
-		onButtonClickApply(w, selected, slider_min, slider_max, governorsSt)
+		onButtonClickApply(w, selected, slider_min, slider_max, governorsSt, func(settings cpuSettings) {
+			snapshotMu.Lock()
+			savedSettings = settings
+			snapshotMu.Unlock()
+		})
+	})
+	restore := widget.NewButton("คืนค่าก่อนหน้า", func() {
+		snapshotMu.Lock()
+		settings := savedSettings
+		snapshotMu.Unlock()
+		writeCPUSettings(w, settings, "คืนค่า")
 	})
 
 	//min
@@ -828,7 +888,10 @@ performance - ประสิทธิภาพสูงสุด
 			container.NewCenter(
 				container.NewVBox(
 					space,
-					container.NewGridWrap(fyne.NewSize(200, 35), apply),
+					container.NewGridWithColumns(2,
+						container.NewGridWrap(fyne.NewSize(200, 35), apply),
+						container.NewGridWrap(fyne.NewSize(200, 35), restore),
+					),
 					space),
 			),
 			widget.NewCard("สถานะปัจจุบัน", "", now),
